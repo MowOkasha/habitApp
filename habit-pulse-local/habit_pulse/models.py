@@ -44,6 +44,11 @@ class HabitMode(str, Enum):
     OPEN_ENDED = "open-ended"
 
 
+class QuestionCadence(str, Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
 def parse_cadence(value: Optional[str]) -> Cadence:
     if not value:
         return Cadence.DAILY
@@ -64,6 +69,16 @@ def parse_mode(value: Optional[str]) -> HabitMode:
         return HabitMode(normalized)
     except ValueError:
         return HabitMode.TARGET
+
+
+def parse_question_cadence(value: Optional[str]) -> QuestionCadence:
+    if not value:
+        return QuestionCadence.DAILY
+    normalized = value.strip().lower()
+    try:
+        return QuestionCadence(normalized)
+    except ValueError:
+        return QuestionCadence.DAILY
 
 
 def cadence_unit(cadence: Cadence) -> str:
@@ -405,9 +420,6 @@ class Habit:
         active_count = active.completed_count
         return f"Logged {active_count}/{self.target_periods} {self.unit_label()}s."
 
-    def mark_day_complete(self, day_value: Optional[date] = None) -> str:
-        return self.mark_period_complete(day_value)
-
     def break_and_restart(
         self,
         reason: str = "Manual reset",
@@ -425,6 +437,47 @@ class Habit:
         if self.check_in_enabled:
             self.schedule_next_check_in(now_value)
         return "Run restarted. Previous run is saved in history."
+
+    def reconfigure(
+        self,
+        *,
+        name: str,
+        section: str,
+        cadence: str,
+        mode: str,
+        target_periods: int,
+        check_in_enabled: bool,
+        check_in_interval_hours: int,
+    ) -> None:
+        new_cadence = parse_cadence(cadence)
+        new_mode = parse_mode(mode)
+        normalized_target = max(1, int(target_periods))
+
+        cadence_changed = new_cadence.value != self.cadence
+        mode_changed = new_mode.value != self.mode
+        target_changed = normalized_target != self.target_periods
+
+        self.name = name.strip() or self.name
+        self.section = section.strip() or "General"
+        self.cadence = new_cadence.value
+        self.mode = new_mode.value
+        self.target_periods = normalized_target
+        self.check_in_enabled = check_in_enabled
+        self.check_in_interval_hours = max(1, int(check_in_interval_hours))
+
+        active = self.ensure_active_run()
+
+        if cadence_changed or mode_changed:
+            self.break_and_restart("Configuration changed")
+            active = self.ensure_active_run()
+
+        if target_changed and self.mode_enum() == HabitMode.TARGET:
+            active.target_periods = self.target_periods
+
+        if not self.check_in_enabled:
+            self.next_check_in_at = None
+        elif self.next_check_in_at is None:
+            self.schedule_next_check_in(now_local())
 
     def schedule_next_check_in(self, reference: Optional[datetime] = None) -> None:
         if not self.check_in_enabled:
@@ -479,9 +532,6 @@ class Habit:
             return 0
         return max(run.completed_count for run in self.runs)
 
-    def best_run_days(self) -> int:
-        return self.best_run_periods()
-
     def broken_runs_count(self) -> int:
         return sum(1 for run in self.runs if run.status == RunStatus.BROKEN.value)
 
@@ -502,12 +552,17 @@ class Habit:
     def _open_window_size(self) -> int:
         cadence = self.cadence_enum()
         if cadence == Cadence.WEEKLY:
-            return 16
+            return 12
         if cadence == Cadence.MONTHLY:
             return 12
-        return 30
+        return 14
 
-    def progress_boxes(self, reference_date: Optional[date] = None) -> list[dict]:
+    def progress_boxes(
+        self,
+        reference_date: Optional[date] = None,
+        *,
+        max_boxes: Optional[int] = None,
+    ) -> list[dict]:
         active = self.ensure_active_run()
         cadence = self.cadence_enum()
         mode = self.mode_enum()
@@ -538,9 +593,15 @@ class Habit:
                         "status": status,
                     }
                 )
+
+            if max_boxes and len(boxes) > max_boxes:
+                return boxes[-max_boxes:]
             return boxes
 
         window = self._open_window_size()
+        if max_boxes:
+            window = max(1, min(window, max_boxes))
+
         for offset in range(window - 1, -1, -1):
             key = period_key_shift(current_key, cadence, -offset)
             if key in done_set:
@@ -600,3 +661,107 @@ class Habit:
         if habit.check_in_enabled and habit.next_check_in_at is None:
             habit.schedule_next_check_in(now_local())
         return habit
+
+
+@dataclass
+class FocusQuestion:
+    id: str
+    text: str
+    cadence: str
+    times_per_period: int
+    video_path: Optional[str]
+    next_prompt_at: Optional[str]
+    enabled: bool = True
+    created_at: str = field(default_factory=lambda: dt_to_str(now_local()))
+
+    @classmethod
+    def create(
+        cls,
+        text: str,
+        cadence: str,
+        times_per_period: int,
+        video_path: Optional[str],
+    ) -> "FocusQuestion":
+        question = cls(
+            id=str(uuid4()),
+            text=text.strip(),
+            cadence=parse_question_cadence(cadence).value,
+            times_per_period=max(1, int(times_per_period)),
+            video_path=(video_path or "").strip() or None,
+            next_prompt_at=None,
+            enabled=True,
+            created_at=dt_to_str(now_local()),
+        )
+        question.schedule_next(now_local())
+        return question
+
+    def cadence_enum(self) -> QuestionCadence:
+        return parse_question_cadence(self.cadence)
+
+    def period_hours(self) -> int:
+        if self.cadence_enum() == QuestionCadence.WEEKLY:
+            return 24 * 7
+        return 24
+
+    def prompt_interval_hours(self) -> float:
+        return max(1.0, self.period_hours() / max(1, self.times_per_period))
+
+    def schedule_next(self, reference: Optional[datetime] = None) -> None:
+        base = reference or now_local()
+        self.next_prompt_at = dt_to_str(base + timedelta(hours=self.prompt_interval_hours()))
+
+    def is_due(self, now_value: Optional[datetime] = None) -> bool:
+        if not self.enabled or not self.next_prompt_at:
+            return False
+        current = now_value or now_local()
+        return str_to_dt(self.next_prompt_at) <= current
+
+    def record_answer(self, answer: bool, when: Optional[datetime] = None) -> None:
+        _ = answer
+        self.schedule_next(when or now_local())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "text": self.text,
+            "cadence": self.cadence,
+            "times_per_period": self.times_per_period,
+            "video_path": self.video_path,
+            "next_prompt_at": self.next_prompt_at,
+            "enabled": self.enabled,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "FocusQuestion":
+        question = cls(
+            id=payload["id"],
+            text=payload.get("text", "").strip(),
+            cadence=parse_question_cadence(payload.get("cadence")).value,
+            times_per_period=max(1, int(payload.get("times_per_period", 1))),
+            video_path=(payload.get("video_path") or "").strip() or None,
+            next_prompt_at=payload.get("next_prompt_at"),
+            enabled=bool(payload.get("enabled", True)),
+            created_at=payload.get("created_at", dt_to_str(now_local())),
+        )
+        if question.next_prompt_at is None:
+            question.schedule_next(now_local())
+        return question
+
+
+@dataclass
+class AppSettings:
+    dopamine_video_path: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "dopamine_video_path": self.dopamine_video_path,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Optional[dict]) -> "AppSettings":
+        if not payload:
+            return cls()
+        return cls(
+            dopamine_video_path=(payload.get("dopamine_video_path") or "").strip() or None,
+        )
