@@ -6,16 +6,9 @@ Habit Pulse is a fully local desktop habit tracker for macOS with sectioned habi
 
 - Add habits under sections/folders such as Work, Gym, Study, or custom sections.
 - Support cadence by habit: daily, weekly, or monthly.
-- Support two habit types:
-	- target streak (example: 30-day streak)
-	- open-ended tracking (no fixed end)
-- Color grid boxes per habit:
-	- green = done
-	- red = missed
-	- neutral = pending
-- Timed check-ins for selected habits (default every 2 hours):
-	- prompt asks "Still going strong?"
-	- Yes / No / Remind in 10 minutes
+- Support two habit types: target streak (example: 30-day streak) and open-ended tracking (no fixed end).
+- Color grid boxes per habit: green = done, red = missed, neutral = pending.
+- Timed check-ins for selected habits (default every 2 hours): prompt asks "Still going strong?" with Yes / No / Remind in 10 minutes.
 - Native macOS notifications for due timed check-ins.
 - Full local history of completed runs, broken runs, and check-in answers.
 
