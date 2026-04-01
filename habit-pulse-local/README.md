@@ -1,41 +1,50 @@
-# Habit Pulse (Local Mac App)
+# Habit Pulse (Local macOS App)
 
-Habit Pulse is a fully local desktop habit tracker for macOS. It stores all data on your machine and never uses the internet.
+Habit Pulse is a fully local desktop habit tracker for macOS with sectioned habits, streak tracking, open-ended tracking, and timed check-ins.
 
-## What this app does
+## Features
 
-- Add habits with custom targets (for example, 30-day streaks).
-- Track day-by-day progress in minimalist habit cards (boxes).
-- Break and restart runs while preserving all previous failed and completed runs.
-- Mark special habits for timed check-ins.
-- Prompt every N hours (default 2): "Still going strong?" with Yes / No / Remind later.
-- Keep permanent local history of runs and check-ins.
+- Add habits under sections/folders such as Work, Gym, Study, or custom sections.
+- Support cadence by habit: daily, weekly, or monthly.
+- Support two habit types:
+	- target streak (example: 30-day streak)
+	- open-ended tracking (no fixed end)
+- Color grid boxes per habit:
+	- green = done
+	- red = missed
+	- neutral = pending
+- Timed check-ins for selected habits (default every 2 hours):
+	- prompt asks "Still going strong?"
+	- Yes / No / Remind in 10 minutes
+- Native macOS notifications for due timed check-ins.
+- Full local history of completed runs, broken runs, and check-in answers.
 
-## Run on your Mac
+## Local data
 
-1. Open Terminal.
-2. Go to the project folder:
-
-```bash
-cd /Users/mabde/habit-pulse-local
-```
-
-3. Start the app:
-
-```bash
-python3 main.py
-```
-
-## Local data location
-
-The app saves data to:
+All data is stored only on your Mac:
 
 `~/Library/Application Support/HabitPulseLocal/habits.json`
 
-Nothing is uploaded to any server.
+No cloud sync and no internet calls by the app.
 
-## Notes
+## Build and install as a normal macOS app
 
-- Intel Macs are fully supported.
-- Check-ins appear while the app is running.
-- If you answer No for a timed check-in, the current run is broken and restarted, and your previous progress is kept in history.
+From Terminal:
+
+```bash
+cd /Users/mabde/habit-pulse-local
+chmod +x build_and_install_app.sh
+./build_and_install_app.sh
+```
+
+This builds a native `.app` bundle with an app icon and installs it to:
+
+- `/Applications/Habit Pulse.app`
+- fallback: `~/Applications/Habit Pulse.app` if system Applications is not writable.
+
+## Run in development mode
+
+```bash
+cd /Users/mabde/habit-pulse-local
+python3 main.py
+```

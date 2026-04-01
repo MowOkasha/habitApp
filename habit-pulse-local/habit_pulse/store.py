@@ -52,14 +52,20 @@ class HabitStore:
     def add_habit(
         self,
         name: str,
-        target_days: int,
+        section: str,
+        cadence: str,
+        mode: str,
+        target_periods: int,
         *,
         check_in_enabled: bool,
         check_in_interval_hours: int,
     ) -> Habit:
         habit = Habit.create(
             name=name,
-            target_days=target_days,
+            section=section,
+            cadence=cadence,
+            mode=mode,
+            target_periods=target_periods,
             check_in_enabled=check_in_enabled,
             check_in_interval_hours=check_in_interval_hours,
         )
@@ -75,6 +81,12 @@ class HabitStore:
     def sync_for_missed_days(self) -> bool:
         changed = False
         for habit in self.habits:
-            if habit.sync_for_missed_days():
+            if habit.sync_for_missed_periods():
                 changed = True
         return changed
+
+    def list_sections(self) -> list[str]:
+        sections = {habit.section.strip() or "General" for habit in self.habits}
+        if not sections:
+            return ["General"]
+        return sorted(sections)
