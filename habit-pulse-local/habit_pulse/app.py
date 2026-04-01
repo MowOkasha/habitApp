@@ -3,13 +3,14 @@ from __future__ import annotations
 import subprocess
 import sys
 import tkinter as tk
+from tkinter import font as tkfont
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from .models import Cadence, FocusQuestion, Habit, HabitMode, QuestionCadence, str_to_dt
+from .models import Cadence, FocusQuestion, Habit, HabitMode, QuestionCadence, TodoItem, str_to_date, str_to_dt
 from .store import HabitStore
 
 
@@ -42,18 +43,37 @@ class HabitPulseApp:
         self.question_times_var = tk.StringVar(value="3")
         self.question_video_var = tk.StringVar(value="")
 
+        self.todo_section_var = tk.StringVar(value="General")
+        self.todo_text_var = tk.StringVar(value="")
+
+        self.journal_day_var = tk.StringVar(value=date.today().isoformat())
+        self.journal_page_var = tk.StringVar(value="Page 1 / 1")
+
         self.dopamine_video_var = tk.StringVar(value=self.store.settings.dopamine_video_path or "")
 
         self.habit_section_combo: Optional[ttk.Combobox] = None
         self.habit_target_spin: Optional[ttk.Spinbox] = None
         self.habit_interval_spin: Optional[ttk.Spinbox] = None
+        self.todo_section_combo: Optional[ttk.Combobox] = None
 
         self.cards_canvas: Optional[tk.Canvas] = None
         self.cards_frame: Optional[ttk.Frame] = None
         self.cards_window: Optional[int] = None
 
+        self.todo_active_canvas: Optional[tk.Canvas] = None
+        self.todo_active_frame: Optional[ttk.Frame] = None
+        self.todo_done_canvas: Optional[tk.Canvas] = None
+        self.todo_done_frame: Optional[ttk.Frame] = None
+        self.todo_active_window: Optional[int] = None
+        self.todo_done_window: Optional[int] = None
+
+        self.day_journal_text: Optional[tk.Text] = None
+
         self.habits_tree: Optional[ttk.Treeview] = None
         self.questions_tree: Optional[ttk.Treeview] = None
+
+        self.todo_font = tkfont.Font(family="Avenir Next", size=11)
+        self.todo_done_font = tkfont.Font(family="Avenir Next", size=11, overstrike=1)
 
         self._configure_styles()
         self._build_layout()
@@ -122,6 +142,36 @@ class HabitPulseApp:
         )
         style.configure("Accent.TButton", font=("Avenir Next", 10, "bold"))
 
+        style.configure(
+            "TEntry",
+            fieldbackground="#ffffff",
+            bordercolor="#b6c4b4",
+            lightcolor="#b6c4b4",
+            darkcolor="#b6c4b4",
+            padding=(4, 3),
+        )
+        style.map(
+            "TEntry",
+            bordercolor=[("focus", "#4a9d61")],
+            lightcolor=[("focus", "#4a9d61")],
+            darkcolor=[("focus", "#4a9d61")],
+            fieldbackground=[("focus", "#f6fff7")],
+        )
+        style.map(
+            "TCombobox",
+            bordercolor=[("focus", "#4a9d61")],
+            lightcolor=[("focus", "#4a9d61")],
+            darkcolor=[("focus", "#4a9d61")],
+            fieldbackground=[("focus", "#f6fff7")],
+        )
+        style.map(
+            "TSpinbox",
+            bordercolor=[("focus", "#4a9d61")],
+            lightcolor=[("focus", "#4a9d61")],
+            darkcolor=[("focus", "#4a9d61")],
+            fieldbackground=[("focus", "#f6fff7")],
+        )
+
     def _build_layout(self) -> None:
         container = ttk.Frame(self.root, style="Root.TFrame", padding=(18, 14, 18, 14))
         container.pack(fill="both", expand=True)
@@ -155,14 +205,20 @@ class HabitPulseApp:
         tracker_tab = ttk.Frame(notebook, style="Root.TFrame", padding=(8, 8, 8, 8))
         settings_tab = ttk.Frame(notebook, style="Root.TFrame", padding=(8, 8, 8, 8))
         questions_tab = ttk.Frame(notebook, style="Root.TFrame", padding=(8, 8, 8, 8))
+        journal_tab = ttk.Frame(notebook, style="Root.TFrame", padding=(8, 8, 8, 8))
+        todo_tab = ttk.Frame(notebook, style="Root.TFrame", padding=(8, 8, 8, 8))
 
         notebook.add(tracker_tab, text="Tracker")
         notebook.add(settings_tab, text="Settings")
         notebook.add(questions_tab, text="Questions")
+        notebook.add(journal_tab, text="Journal")
+        notebook.add(todo_tab, text="Todo")
 
         self._build_tracker_tab(tracker_tab)
         self._build_settings_tab(settings_tab)
         self._build_questions_tab(questions_tab)
+        self._build_journal_tab(journal_tab)
+        self._build_todo_tab(todo_tab)
 
         ttk.Label(container, textvariable=self.status_var, style="Status.TLabel").pack(fill="x", pady=(2, 0))
 
@@ -178,18 +234,23 @@ class HabitPulseApp:
             width=16,
         )
         self.habit_section_combo.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 6))
+        self._attach_focus_hint(self.habit_section_combo, "habit section")
 
         ttk.Label(form, text="Habit", style="Label.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=(0, 6))
-        ttk.Entry(form, textvariable=self.habit_name_var, width=28).grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 6))
+        habit_name_entry = ttk.Entry(form, textvariable=self.habit_name_var, width=28)
+        habit_name_entry.grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 6))
+        self._attach_focus_hint(habit_name_entry, "habit name")
 
         ttk.Label(form, text="Cadence", style="Label.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 8), pady=(0, 6))
-        ttk.Combobox(
+        cadence_combo = ttk.Combobox(
             form,
             textvariable=self.habit_cadence_var,
             values=[Cadence.DAILY.value, Cadence.WEEKLY.value, Cadence.MONTHLY.value],
             width=10,
             state="readonly",
-        ).grid(row=0, column=5, sticky="w", padx=(0, 12), pady=(0, 6))
+        )
+        cadence_combo.grid(row=0, column=5, sticky="w", padx=(0, 12), pady=(0, 6))
+        self._attach_focus_hint(cadence_combo, "habit cadence")
 
         ttk.Label(form, text="Type", style="Label.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8))
         mode_combo = ttk.Combobox(
@@ -201,6 +262,7 @@ class HabitPulseApp:
         )
         mode_combo.grid(row=1, column=1, sticky="w", padx=(0, 12))
         mode_combo.bind("<<ComboboxSelected>>", lambda _event: self._toggle_habit_target_state())
+        self._attach_focus_hint(mode_combo, "habit type")
 
         ttk.Label(form, text="Target", style="Label.TLabel").grid(row=1, column=2, sticky="w", padx=(0, 8))
         self.habit_target_spin = ttk.Spinbox(
@@ -211,6 +273,7 @@ class HabitPulseApp:
             textvariable=self.habit_target_var,
         )
         self.habit_target_spin.grid(row=1, column=3, sticky="w", padx=(0, 12))
+        self._attach_focus_hint(self.habit_target_spin, "habit target")
 
         ttk.Checkbutton(
             form,
@@ -228,6 +291,7 @@ class HabitPulseApp:
             textvariable=self.habit_interval_var,
         )
         self.habit_interval_spin.grid(row=1, column=6, sticky="w", padx=(0, 12))
+        self._attach_focus_hint(self.habit_interval_spin, "check-in interval")
 
         ttk.Button(
             form,
@@ -269,7 +333,9 @@ class HabitPulseApp:
         section_panel.pack(fill="x", pady=(0, 8))
 
         ttk.Label(section_panel, text="Create section", style="Label.TLabel").pack(side="left", padx=(0, 8))
-        ttk.Entry(section_panel, textvariable=self.section_add_var, width=24).pack(side="left", padx=(0, 8))
+        section_entry = ttk.Entry(section_panel, textvariable=self.section_add_var, width=24)
+        section_entry.pack(side="left", padx=(0, 8))
+        self._attach_focus_hint(section_entry, "new section")
         ttk.Button(section_panel, text="Add Section", command=self._add_section).pack(side="left")
 
         tree_panel = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 8, 8, 8))
@@ -311,7 +377,9 @@ class HabitPulseApp:
         dopamine_panel.pack(fill="x", pady=(0, 8))
 
         ttk.Label(dopamine_panel, text="Default dopamine video", style="Label.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        ttk.Entry(dopamine_panel, textvariable=self.dopamine_video_var, width=72).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        dopamine_entry = ttk.Entry(dopamine_panel, textvariable=self.dopamine_video_var, width=72)
+        dopamine_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self._attach_focus_hint(dopamine_entry, "dopamine video path")
         ttk.Button(dopamine_panel, text="Browse", command=self._browse_dopamine_video).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(dopamine_panel, text="Save", command=self._save_dopamine_video).grid(row=0, column=3, padx=(0, 8))
         ttk.Button(dopamine_panel, text="Play", command=self._play_dopamine_video).grid(row=0, column=4)
@@ -321,22 +389,30 @@ class HabitPulseApp:
         form.pack(fill="x", pady=(0, 8))
 
         ttk.Label(form, text="Question", style="Label.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 6))
-        ttk.Entry(form, textvariable=self.question_text_var, width=56).grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 6))
+        question_entry = ttk.Entry(form, textvariable=self.question_text_var, width=56)
+        question_entry.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 6))
+        self._attach_focus_hint(question_entry, "question text")
 
         ttk.Label(form, text="Cadence", style="Label.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=(0, 6))
-        ttk.Combobox(
+        question_cadence_combo = ttk.Combobox(
             form,
             textvariable=self.question_cadence_var,
             values=[QuestionCadence.DAILY.value, QuestionCadence.WEEKLY.value],
             width=10,
             state="readonly",
-        ).grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 6))
+        )
+        question_cadence_combo.grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 6))
+        self._attach_focus_hint(question_cadence_combo, "question cadence")
 
         ttk.Label(form, text="Times", style="Label.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 8), pady=(0, 6))
-        ttk.Spinbox(form, from_=1, to=60, width=8, textvariable=self.question_times_var).grid(row=0, column=5, sticky="w", padx=(0, 12), pady=(0, 6))
+        question_times_spin = ttk.Spinbox(form, from_=1, to=60, width=8, textvariable=self.question_times_var)
+        question_times_spin.grid(row=0, column=5, sticky="w", padx=(0, 12), pady=(0, 6))
+        self._attach_focus_hint(question_times_spin, "question frequency")
 
         ttk.Label(form, text="Video", style="Label.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8))
-        ttk.Entry(form, textvariable=self.question_video_var, width=56).grid(row=1, column=1, sticky="w", padx=(0, 12))
+        question_video_entry = ttk.Entry(form, textvariable=self.question_video_var, width=56)
+        question_video_entry.grid(row=1, column=1, sticky="w", padx=(0, 12))
+        self._attach_focus_hint(question_video_entry, "question video path")
         ttk.Button(form, text="Browse", command=self._browse_question_video).grid(row=1, column=2, sticky="w", padx=(0, 8))
         ttk.Button(form, text="Add Question", style="Accent.TButton", command=self._add_question).grid(row=1, column=3, sticky="w")
 
@@ -375,6 +451,112 @@ class HabitPulseApp:
 
         self.questions_tree.bind("<Double-1>", lambda _event: self._open_edit_selected_question())
 
+    def _build_journal_tab(self, parent: ttk.Frame) -> None:
+        nav = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 10, 12, 10))
+        nav.pack(fill="x", pady=(0, 8))
+
+        ttk.Button(nav, text="< Prev Page", command=lambda: self._flip_day_journal_page(-1)).pack(side="left", padx=(0, 8))
+        ttk.Button(nav, text="Next Page >", command=lambda: self._flip_day_journal_page(1)).pack(side="left", padx=(0, 12))
+
+        ttk.Label(nav, text="Day", style="Label.TLabel").pack(side="left", padx=(0, 8))
+        day_entry = ttk.Entry(nav, textvariable=self.journal_day_var, width=14)
+        day_entry.pack(side="left", padx=(0, 8))
+        self._attach_focus_hint(day_entry, "journal day")
+
+        ttk.Button(nav, text="Load", command=self._load_day_journal_from_input).pack(side="left", padx=(0, 8))
+        ttk.Button(nav, text="Today", command=self._jump_to_today_journal).pack(side="left", padx=(0, 12))
+        ttk.Button(nav, text="Save Page", style="Accent.TButton", command=self._save_day_journal_page).pack(side="left")
+
+        ttk.Label(nav, textvariable=self.journal_page_var, style="CardMeta.TLabel").pack(side="right")
+
+        shell = ttk.Frame(parent, style="Panel.TFrame", padding=(18, 14, 18, 14))
+        shell.pack(fill="both", expand=True)
+
+        book = tk.Frame(shell, bg="#efe2c3", bd=0, padx=26, pady=20)
+        book.pack(fill="both", expand=True)
+
+        left_page = tk.Frame(book, bg="#fbf3de", bd=1, relief="solid")
+        left_page.pack(fill="both", expand=True)
+
+        header = tk.Label(
+            left_page,
+            text="Daily Journal",
+            bg="#fbf3de",
+            fg="#4a3f2a",
+            font=("Avenir Next", 16, "bold"),
+            anchor="w",
+            padx=12,
+            pady=8,
+        )
+        header.pack(fill="x")
+
+        self.day_journal_text = tk.Text(
+            left_page,
+            wrap="word",
+            bg="#fff9ec",
+            fg="#3a2f22",
+            insertbackground="#2c2419",
+            font=("Georgia", 13),
+            padx=16,
+            pady=12,
+            undo=True,
+        )
+        self.day_journal_text.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self._style_text_focus(self.day_journal_text)
+        self._attach_focus_hint(self.day_journal_text, "daily journal page")
+
+    def _build_todo_tab(self, parent: ttk.Frame) -> None:
+        form = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 10, 12, 10))
+        form.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(form, text="Section", style="Label.TLabel").pack(side="left", padx=(0, 8))
+        self.todo_section_combo = ttk.Combobox(form, textvariable=self.todo_section_var, values=self.store.list_sections(), width=18)
+        self.todo_section_combo.pack(side="left", padx=(0, 12))
+        self._attach_focus_hint(self.todo_section_combo, "todo section")
+
+        ttk.Label(form, text="Todo", style="Label.TLabel").pack(side="left", padx=(0, 8))
+        todo_entry = ttk.Entry(form, textvariable=self.todo_text_var, width=52)
+        todo_entry.pack(side="left", padx=(0, 12), fill="x", expand=True)
+        self._attach_focus_hint(todo_entry, "todo input")
+
+        ttk.Button(form, text="Add Todo", style="Accent.TButton", command=self._add_todo).pack(side="left")
+
+        panels = ttk.Frame(parent, style="Root.TFrame")
+        panels.pack(fill="both", expand=True)
+        panels.columnconfigure(0, weight=1)
+        panels.columnconfigure(1, weight=1)
+        panels.rowconfigure(0, weight=1)
+
+        active_panel = ttk.Frame(panels, style="Panel.TFrame", padding=(10, 10, 10, 10))
+        active_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        ttk.Label(active_panel, text="Checklist", style="SectionLabel.TLabel").pack(anchor="w", pady=(0, 6))
+
+        self.todo_active_canvas = tk.Canvas(active_panel, background="#f8faf5", highlightthickness=0, bd=0)
+        active_scroll = ttk.Scrollbar(active_panel, orient="vertical", command=self.todo_active_canvas.yview)
+        self.todo_active_canvas.configure(yscrollcommand=active_scroll.set)
+        self.todo_active_canvas.pack(side="left", fill="both", expand=True)
+        active_scroll.pack(side="right", fill="y")
+
+        self.todo_active_frame = ttk.Frame(self.todo_active_canvas, style="Panel.TFrame")
+        self.todo_active_window = self.todo_active_canvas.create_window((0, 0), window=self.todo_active_frame, anchor="nw")
+        self.todo_active_frame.bind("<Configure>", self._update_todo_active_scroll)
+        self.todo_active_canvas.bind("<Configure>", self._resize_todo_active_window)
+
+        done_panel = ttk.Frame(panels, style="Panel.TFrame", padding=(10, 10, 10, 10))
+        done_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        ttk.Label(done_panel, text="Done (24h archive)", style="SectionLabel.TLabel").pack(anchor="w", pady=(0, 6))
+
+        self.todo_done_canvas = tk.Canvas(done_panel, background="#f8faf5", highlightthickness=0, bd=0)
+        done_scroll = ttk.Scrollbar(done_panel, orient="vertical", command=self.todo_done_canvas.yview)
+        self.todo_done_canvas.configure(yscrollcommand=done_scroll.set)
+        self.todo_done_canvas.pack(side="left", fill="both", expand=True)
+        done_scroll.pack(side="right", fill="y")
+
+        self.todo_done_frame = ttk.Frame(self.todo_done_canvas, style="Panel.TFrame")
+        self.todo_done_window = self.todo_done_canvas.create_window((0, 0), window=self.todo_done_frame, anchor="nw")
+        self.todo_done_frame.bind("<Configure>", self._update_todo_done_scroll)
+        self.todo_done_canvas.bind("<Configure>", self._resize_todo_done_window)
+
     def _legend_chip(self, parent: ttk.Frame, text: str, color: str) -> tk.Label:
         return tk.Label(
             parent,
@@ -386,10 +568,46 @@ class HabitPulseApp:
             pady=2,
         )
 
+    def _attach_focus_hint(self, widget: tk.Widget, label: str) -> None:
+        widget.bind(
+            "<FocusIn>",
+            lambda _event, text=label: self._set_status(f"Typing in {text}..."),
+            add="+",
+        )
+
+    def _style_text_focus(self, widget: tk.Text) -> None:
+        widget.configure(highlightthickness=2, highlightbackground="#b6c4b4", highlightcolor="#4a9d61")
+        widget.bind(
+            "<FocusIn>",
+            lambda _event: widget.configure(highlightbackground="#4a9d61"),
+            add="+",
+        )
+        widget.bind(
+            "<FocusOut>",
+            lambda _event: widget.configure(highlightbackground="#b6c4b4"),
+            add="+",
+        )
+
+    def _bind_single_click(self, widget: tk.Widget, callback) -> None:
+        def _click(_event: tk.Event) -> str:
+            callback()
+            return "break"
+
+        widget.bind("<ButtonRelease-1>", _click, add="+")
+
     def _on_mouse_wheel(self, event: tk.Event) -> None:
-        if self.cards_canvas is None:
+        target: Optional[tk.Canvas] = None
+        widget = event.widget
+        while widget is not None:
+            if widget in {self.cards_canvas, self.todo_active_canvas, self.todo_done_canvas}:
+                target = widget  # type: ignore[assignment]
+                break
+            widget = widget.master
+        if target is None:
+            target = self.cards_canvas
+        if target is None:
             return
-        self.cards_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        target.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _update_cards_scroll(self, _event: tk.Event) -> None:
         if self.cards_canvas is None:
@@ -400,6 +618,26 @@ class HabitPulseApp:
         if self.cards_canvas is None or self.cards_window is None:
             return
         self.cards_canvas.itemconfigure(self.cards_window, width=event.width)
+
+    def _update_todo_active_scroll(self, _event: tk.Event) -> None:
+        if self.todo_active_canvas is None:
+            return
+        self.todo_active_canvas.configure(scrollregion=self.todo_active_canvas.bbox("all"))
+
+    def _resize_todo_active_window(self, event: tk.Event) -> None:
+        if self.todo_active_canvas is None or self.todo_active_window is None:
+            return
+        self.todo_active_canvas.itemconfigure(self.todo_active_window, width=event.width)
+
+    def _update_todo_done_scroll(self, _event: tk.Event) -> None:
+        if self.todo_done_canvas is None:
+            return
+        self.todo_done_canvas.configure(scrollregion=self.todo_done_canvas.bbox("all"))
+
+    def _resize_todo_done_window(self, event: tk.Event) -> None:
+        if self.todo_done_canvas is None or self.todo_done_window is None:
+            return
+        self.todo_done_canvas.itemconfigure(self.todo_done_window, width=event.width)
 
     def _set_status(self, message: str) -> None:
         self.status_var.set(message)
@@ -447,8 +685,12 @@ class HabitPulseApp:
         sections = self.store.list_sections()
         if self.habit_section_combo is not None:
             self.habit_section_combo.configure(values=sections)
+        if self.todo_section_combo is not None:
+            self.todo_section_combo.configure(values=sections)
         if not self.habit_section_var.get().strip():
             self.habit_section_var.set(sections[0])
+        if not self.todo_section_var.get().strip():
+            self.todo_section_var.set(sections[0])
 
     def _refresh_habits_tree(self) -> None:
         if self.habits_tree is None:
@@ -496,10 +738,227 @@ class HabitPulseApp:
                 ),
             )
 
+    def _normalize_day_value(self, day_text: str) -> Optional[str]:
+        normalized = day_text.strip()
+        if not normalized:
+            return None
+        try:
+            return str_to_date(normalized).isoformat()
+        except ValueError:
+            return None
+
+    def _journal_days(self) -> list[str]:
+        days = set(self.store.list_day_journal_days())
+        days.add(date.today().isoformat())
+        current = self._normalize_day_value(self.journal_day_var.get())
+        if current:
+            days.add(current)
+        return sorted(days)
+
+    def _refresh_day_journal_view(self) -> None:
+        if self.day_journal_text is None:
+            return
+
+        normalized = self._normalize_day_value(self.journal_day_var.get())
+        if normalized is None:
+            normalized = date.today().isoformat()
+            self.journal_day_var.set(normalized)
+
+        page = self.store.get_day_journal_page(normalized)
+        content = page.note if page else ""
+
+        self.day_journal_text.delete("1.0", "end")
+        self.day_journal_text.insert("1.0", content)
+
+        days = self._journal_days()
+        page_index = days.index(normalized) + 1 if normalized in days else 1
+        self.journal_page_var.set(f"Page {page_index} / {max(1, len(days))}")
+
+    def _load_day_journal_from_input(self) -> None:
+        normalized = self._normalize_day_value(self.journal_day_var.get())
+        if normalized is None:
+            messagebox.showerror("Invalid day", "Use date format YYYY-MM-DD.")
+            return
+        self.journal_day_var.set(normalized)
+        self._refresh_day_journal_view()
+
+    def _save_day_journal_page(self) -> None:
+        if self.day_journal_text is None:
+            return
+        normalized = self._normalize_day_value(self.journal_day_var.get())
+        if normalized is None:
+            messagebox.showerror("Invalid day", "Use date format YYYY-MM-DD.")
+            return
+        note = self.day_journal_text.get("1.0", "end").strip()
+        self.store.save_day_journal_page(normalized, note)
+        self.store.save()
+        self._refresh_day_journal_view()
+        self._set_status(f"Saved daily journal page for {normalized}.")
+
+    def _jump_to_today_journal(self) -> None:
+        self.journal_day_var.set(date.today().isoformat())
+        self._refresh_day_journal_view()
+
+    def _flip_day_journal_page(self, offset: int) -> None:
+        days = self._journal_days()
+        if not days:
+            self.journal_day_var.set(date.today().isoformat())
+            self._refresh_day_journal_view()
+            return
+
+        current = self._normalize_day_value(self.journal_day_var.get()) or days[-1]
+        if current not in days:
+            days.append(current)
+            days.sort()
+
+        index = days.index(current)
+        next_index = max(0, min(len(days) - 1, index + offset))
+        self.journal_day_var.set(days[next_index])
+        self._refresh_day_journal_view()
+
+    def _render_todo_row(self, parent: ttk.Frame, todo: TodoItem, *, archived_panel: bool) -> None:
+        row = ttk.Frame(parent, style="Panel.TFrame", padding=(6, 4, 6, 4))
+        row.pack(fill="x", pady=2)
+
+        done_value = tk.BooleanVar(value=todo.is_completed())
+        ttk.Checkbutton(
+            row,
+            variable=done_value,
+            command=lambda selected=todo.id: self._toggle_todo(selected),
+        ).pack(side="left", padx=(0, 6))
+
+        label = tk.Label(
+            row,
+            text=todo.text,
+            bg="#f8faf5",
+            fg="#274030" if not todo.is_completed() else "#6c7d70",
+            font=self.todo_done_font if todo.is_completed() else self.todo_font,
+            anchor="w",
+            justify="left",
+            wraplength=420,
+        )
+        label.pack(side="left", fill="x", expand=True)
+
+        if todo.is_completed() and not archived_panel:
+            remaining_hours = todo.hours_until_archive(datetime.now())
+            hours_value = int(remaining_hours)
+            minutes_value = int((remaining_hours - hours_value) * 60)
+            ttk.Label(
+                row,
+                text=f"Moves to done in {hours_value}h {minutes_value:02d}m",
+                style="CardMeta.TLabel",
+            ).pack(side="left", padx=(8, 8))
+
+        if todo.is_completed():
+            ttk.Button(row, text="Undo", command=lambda selected=todo.id: self._undo_todo(selected)).pack(side="left", padx=(0, 6))
+
+        ttk.Button(row, text="Delete", command=lambda selected=todo.id: self._delete_todo(selected)).pack(side="left")
+
+    def _refresh_todo_views(self) -> None:
+        if self.todo_active_frame is None or self.todo_done_frame is None:
+            return
+
+        if self.store.sync_todo_rollover():
+            self.store.save()
+
+        for child in self.todo_active_frame.winfo_children():
+            child.destroy()
+        for child in self.todo_done_frame.winfo_children():
+            child.destroy()
+
+        active_items = sorted(
+            self.store.active_todos(),
+            key=lambda item: (item.section.lower(), item.is_completed(), item.created_at),
+        )
+        done_items = sorted(
+            self.store.done_todos(),
+            key=lambda item: (item.section.lower(), item.completed_at or item.created_at),
+            reverse=True,
+        )
+
+        if not active_items:
+            ttk.Label(self.todo_active_frame, text="No active todos yet.", style="CardMeta.TLabel").pack(anchor="w", pady=8)
+        else:
+            grouped_active: dict[str, list[TodoItem]] = defaultdict(list)
+            for todo in active_items:
+                grouped_active[todo.section.strip() or "General"].append(todo)
+
+            for section_name in sorted(grouped_active.keys()):
+                section_frame = ttk.Frame(self.todo_active_frame, style="Panel.TFrame", padding=(2, 2, 2, 6))
+                section_frame.pack(fill="x", pady=(0, 6))
+                ttk.Label(section_frame, text=section_name, style="SectionLabel.TLabel").pack(anchor="w", pady=(0, 2))
+                for todo in grouped_active[section_name]:
+                    self._render_todo_row(section_frame, todo, archived_panel=False)
+
+        if not done_items:
+            ttk.Label(self.todo_done_frame, text="Nothing in done archive yet.", style="CardMeta.TLabel").pack(anchor="w", pady=8)
+        else:
+            grouped_done: dict[str, list[TodoItem]] = defaultdict(list)
+            for todo in done_items:
+                grouped_done[todo.section.strip() or "General"].append(todo)
+
+            for section_name in sorted(grouped_done.keys()):
+                section_frame = ttk.Frame(self.todo_done_frame, style="Panel.TFrame", padding=(2, 2, 2, 6))
+                section_frame.pack(fill="x", pady=(0, 6))
+                ttk.Label(section_frame, text=section_name, style="SectionLabel.TLabel").pack(anchor="w", pady=(0, 2))
+                for todo in grouped_done[section_name]:
+                    self._render_todo_row(section_frame, todo, archived_panel=True)
+
+    def _add_todo(self) -> None:
+        section = self.todo_section_var.get().strip() or "General"
+        text = self.todo_text_var.get().strip()
+        if not text:
+            messagebox.showerror("Invalid todo", "Todo text cannot be empty.")
+            return
+
+        todo = self.store.add_todo(section=section, text=text)
+        self.store.save()
+        self.todo_text_var.set("")
+        self._refresh_all_views()
+        self._set_status(f"Added todo in section '{todo.section}'.")
+
+    def _toggle_todo(self, todo_id: str) -> None:
+        todo = self.store.toggle_todo_done(todo_id)
+        if todo is None:
+            return
+        self.store.save()
+        self._refresh_todo_views()
+        if todo.is_completed():
+            self._set_status("Todo checked. It will move to done after 24 hours.")
+        else:
+            self._set_status("Todo unchecked and restored.")
+
+    def _undo_todo(self, todo_id: str) -> None:
+        todo = self.store.undo_todo_done(todo_id)
+        if todo is None:
+            return
+        self.store.save()
+        self._refresh_todo_views()
+        self._set_status("Todo moved back to active list.")
+
+    def _delete_todo(self, todo_id: str) -> None:
+        if not self.store.delete_todo(todo_id):
+            return
+        self.store.save()
+        self._refresh_todo_views()
+        self._set_status("Todo deleted.")
+
     def _make_clickable(self, widget: tk.Widget, callback) -> None:
-        widget.bind("<Button-1>", lambda _event: callback())
+        self._bind_single_click(widget, callback)
         for child in widget.winfo_children():
-            if isinstance(child, (ttk.Button, tk.Button, ttk.Entry, ttk.Combobox, ttk.Spinbox)):
+            if isinstance(
+                child,
+                (
+                    ttk.Button,
+                    tk.Button,
+                    ttk.Entry,
+                    ttk.Combobox,
+                    ttk.Spinbox,
+                    tk.Text,
+                    ttk.Treeview,
+                    ttk.Scrollbar,
+                ),
+            ):
                 continue
             self._make_clickable(child, callback)
 
@@ -608,6 +1067,8 @@ class HabitPulseApp:
         self._render_tracker_cards()
         self._refresh_habits_tree()
         self._refresh_questions_tree()
+        self._refresh_day_journal_view()
+        self._refresh_todo_views()
 
     def _validate_habit_form(
         self,
@@ -926,6 +1387,13 @@ class HabitPulseApp:
                 answer_label = "yes" if entry.answer else "no"
                 lines.append(f"- {self._format_stamp(entry.timestamp)} -> {answer_label}")
 
+        if habit.journal_entries:
+            lines.append("")
+            lines.append("Recent journal notes:")
+            for entry in habit.recent_journal_entries(limit=10):
+                lines.append(f"- [{entry.day}] {self._format_stamp(entry.timestamp)}")
+                lines.append(f"  {entry.note}")
+
         history_text.insert("1.0", "\n".join(lines))
         history_text.configure(state="disabled")
 
@@ -954,6 +1422,12 @@ class HabitPulseApp:
             actions,
             text="Restart",
             command=lambda: self._restart_habit_from_details(habit.id, dialog),
+        ).pack(side="left", padx=(0, 8))
+
+        ttk.Button(
+            actions,
+            text="Journal",
+            command=lambda: self._open_habit_journal_dialog(habit.id),
         ).pack(side="left", padx=(0, 8))
 
         if habit.check_in_enabled:
@@ -1016,6 +1490,97 @@ class HabitPulseApp:
         self._set_status(f"{habit.name}: {message}")
         dialog.destroy()
         self._open_habit_details(habit_id)
+
+    def _open_habit_journal_dialog(self, habit_id: str) -> None:
+        habit = self.store.get_habit(habit_id)
+        if habit is None:
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Habit Journal - {habit.name}")
+        dialog.geometry("760x620")
+
+        frame = ttk.Frame(dialog, style="Panel.TFrame", padding=(14, 12, 14, 12))
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text=f"{habit.name} Journal", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(frame, text="Record what you did each day.", style="CardMeta.TLabel").pack(anchor="w", pady=(2, 8))
+
+        controls = ttk.Frame(frame, style="Panel.TFrame")
+        controls.pack(fill="x", pady=(0, 8))
+
+        day_var = tk.StringVar(value=date.today().isoformat())
+        ttk.Label(controls, text="Day", style="Label.TLabel").pack(side="left", padx=(0, 8))
+        day_entry = ttk.Entry(controls, textvariable=day_var, width=14)
+        day_entry.pack(side="left", padx=(0, 12))
+        self._attach_focus_hint(day_entry, "habit journal day")
+
+        history_text = tk.Text(
+            frame,
+            wrap="word",
+            height=16,
+            bg="#fbfcf8",
+            fg="#24362b",
+            font=("Menlo", 10),
+            state="disabled",
+        )
+        history_text.pack(fill="both", expand=True)
+        self._style_text_focus(history_text)
+
+        compose_label = ttk.Label(frame, text="New note", style="Label.TLabel")
+        compose_label.pack(anchor="w", pady=(8, 4))
+
+        compose_text = tk.Text(
+            frame,
+            wrap="word",
+            height=5,
+            bg="#fffdf7",
+            fg="#2d4033",
+            font=("Avenir Next", 11),
+            insertbackground="#1f3127",
+        )
+        compose_text.pack(fill="x")
+        self._style_text_focus(compose_text)
+        self._attach_focus_hint(compose_text, "habit journal note")
+
+        def refresh_history() -> None:
+            lines: list[str] = []
+            for entry in habit.recent_journal_entries(limit=200):
+                lines.append(f"[{entry.day}] {self._format_stamp(entry.timestamp)}")
+                lines.append(entry.note)
+                lines.append("")
+            if not lines:
+                lines = ["No journal notes yet."]
+            history_text.configure(state="normal")
+            history_text.delete("1.0", "end")
+            history_text.insert("1.0", "\n".join(lines).strip())
+            history_text.configure(state="disabled")
+
+        refresh_history()
+
+        actions = ttk.Frame(frame, style="Panel.TFrame")
+        actions.pack(fill="x", pady=(10, 0))
+
+        def save_note() -> None:
+            note = compose_text.get("1.0", "end").strip()
+            if not note:
+                messagebox.showerror("Invalid note", "Journal note cannot be empty.")
+                return
+
+            normalized_day = self._normalize_day_value(day_var.get())
+            if normalized_day is None:
+                messagebox.showerror("Invalid day", "Use date format YYYY-MM-DD.")
+                return
+
+            habit.add_journal_entry(note, day_value=str_to_date(normalized_day), when=datetime.now())
+            self.store.save()
+            compose_text.delete("1.0", "end")
+            refresh_history()
+            self._refresh_all_views()
+            self._set_status(f"Saved journal note for {habit.name} on {normalized_day}.")
+
+        ttk.Button(actions, text="Save Note", style="Accent.TButton", command=save_note).pack(side="left")
+        ttk.Button(actions, text="Close", command=dialog.destroy).pack(side="right")
 
     def _browse_video_file(self) -> Optional[str]:
         selected = filedialog.askopenfilename(

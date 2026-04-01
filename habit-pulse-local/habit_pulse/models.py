@@ -184,6 +184,47 @@ class CheckInRecord:
 
 
 @dataclass
+class HabitJournalEntry:
+    id: str
+    day: str
+    timestamp: str
+    note: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        note: str,
+        day_value: Optional[date] = None,
+        when: Optional[datetime] = None,
+    ) -> "HabitJournalEntry":
+        stamp = when or now_local()
+        return cls(
+            id=str(uuid4()),
+            day=date_to_str(day_value or stamp.date()),
+            timestamp=dt_to_str(stamp),
+            note=note.strip(),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "day": self.day,
+            "timestamp": self.timestamp,
+            "note": self.note,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "HabitJournalEntry":
+        return cls(
+            id=payload.get("id", str(uuid4())),
+            day=payload.get("day", date_to_str(now_local().date())),
+            timestamp=payload.get("timestamp", dt_to_str(now_local())),
+            note=(payload.get("note") or "").strip(),
+        )
+
+
+@dataclass
 class HabitRun:
     id: str
     started_at: str
@@ -263,6 +304,7 @@ class Habit:
     next_check_in_at: Optional[str] = None
     runs: list[HabitRun] = field(default_factory=list)
     check_ins: list[CheckInRecord] = field(default_factory=list)
+    journal_entries: list[HabitJournalEntry] = field(default_factory=list)
 
     @classmethod
     def create(
@@ -292,6 +334,7 @@ class Habit:
             next_check_in_at=None,
             runs=[],
             check_ins=[],
+            journal_entries=[],
         )
         habit._start_new_run(created)
         if habit.check_in_enabled:
@@ -549,6 +592,22 @@ class Habit:
         historical.sort(key=lambda item: item.started_at, reverse=True)
         return historical[:limit]
 
+    def add_journal_entry(
+        self,
+        note: str,
+        *,
+        day_value: Optional[date] = None,
+        when: Optional[datetime] = None,
+    ) -> HabitJournalEntry:
+        entry = HabitJournalEntry.create(note=note, day_value=day_value, when=when)
+        self.journal_entries.append(entry)
+        self.journal_entries.sort(key=lambda item: item.timestamp)
+        return entry
+
+    def recent_journal_entries(self, limit: int = 50) -> list[HabitJournalEntry]:
+        ordered = sorted(self.journal_entries, key=lambda item: item.timestamp, reverse=True)
+        return ordered[:limit]
+
     def _open_window_size(self) -> int:
         cadence = self.cadence_enum()
         if cadence == Cadence.WEEKLY:
@@ -634,6 +693,7 @@ class Habit:
             "next_check_in_at": self.next_check_in_at,
             "runs": [run.to_dict() for run in self.runs],
             "check_ins": [entry.to_dict() for entry in self.check_ins],
+            "journal_entries": [entry.to_dict() for entry in self.journal_entries],
         }
 
     @classmethod
@@ -655,6 +715,10 @@ class Habit:
             next_check_in_at=payload.get("next_check_in_at"),
             runs=[HabitRun.from_dict(item) for item in payload.get("runs", [])],
             check_ins=[CheckInRecord.from_dict(item) for item in payload.get("check_ins", [])],
+            journal_entries=[
+                HabitJournalEntry.from_dict(item)
+                for item in payload.get("journal_entries", payload.get("notes", []))
+            ],
         )
         if not habit.runs:
             habit._start_new_run(now_local())
@@ -747,6 +811,113 @@ class FocusQuestion:
         if question.next_prompt_at is None:
             question.schedule_next(now_local())
         return question
+
+
+@dataclass
+class DayJournalPage:
+    day: str
+    note: str
+    updated_at: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        day: str,
+        note: str,
+        updated_at: Optional[datetime] = None,
+    ) -> "DayJournalPage":
+        return cls(
+            day=day,
+            note=note,
+            updated_at=dt_to_str(updated_at or now_local()),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "day": self.day,
+            "note": self.note,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "DayJournalPage":
+        return cls(
+            day=payload.get("day", date_to_str(now_local().date())),
+            note=payload.get("note", ""),
+            updated_at=payload.get("updated_at", dt_to_str(now_local())),
+        )
+
+
+@dataclass
+class TodoItem:
+    id: str
+    section: str
+    text: str
+    created_at: str
+    completed_at: Optional[str] = None
+    archived: bool = False
+
+    @classmethod
+    def create(cls, *, section: str, text: str) -> "TodoItem":
+        return cls(
+            id=str(uuid4()),
+            section=section.strip() or "General",
+            text=text.strip(),
+            created_at=dt_to_str(now_local()),
+            completed_at=None,
+            archived=False,
+        )
+
+    def is_completed(self) -> bool:
+        return bool(self.completed_at)
+
+    def mark_done(self, when: Optional[datetime] = None) -> None:
+        self.completed_at = dt_to_str(when or now_local())
+        self.archived = False
+
+    def undo_done(self) -> None:
+        self.completed_at = None
+        self.archived = False
+
+    def archive_if_due(self, now_value: Optional[datetime] = None) -> bool:
+        if self.completed_at is None or self.archived:
+            return False
+        current = now_value or now_local()
+        due = str_to_dt(self.completed_at) + timedelta(hours=24)
+        if current >= due:
+            self.archived = True
+            return True
+        return False
+
+    def hours_until_archive(self, now_value: Optional[datetime] = None) -> float:
+        if self.completed_at is None:
+            return 24.0
+        current = now_value or now_local()
+        due = str_to_dt(self.completed_at) + timedelta(hours=24)
+        remaining = (due - current).total_seconds() / 3600.0
+        return max(0.0, remaining)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "section": self.section,
+            "text": self.text,
+            "created_at": self.created_at,
+            "completed_at": self.completed_at,
+            "archived": self.archived,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "TodoItem":
+        return cls(
+            id=payload.get("id", str(uuid4())),
+            section=(payload.get("section") or "General").strip() or "General",
+            text=(payload.get("text") or "").strip(),
+            created_at=payload.get("created_at", dt_to_str(now_local())),
+            completed_at=payload.get("completed_at"),
+            archived=bool(payload.get("archived", False)),
+        )
 
 
 @dataclass

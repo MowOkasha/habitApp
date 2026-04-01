@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .models import AppSettings, FocusQuestion, Habit
+from .models import AppSettings, DayJournalPage, FocusQuestion, Habit, TodoItem
 
 
 DEFAULT_STORAGE_FILE = (
@@ -20,6 +20,8 @@ class HabitStore:
 
         self.habits: list[Habit] = []
         self.questions: list[FocusQuestion] = []
+        self.day_journals: list[DayJournalPage] = []
+        self.todos: list[TodoItem] = []
         self.sections: list[str] = ["General"]
         self.settings: AppSettings = AppSettings()
 
@@ -27,6 +29,8 @@ class HabitStore:
         if not self.storage_file.exists():
             self.habits = []
             self.questions = []
+            self.day_journals = []
+            self.todos = []
             self.sections = ["General"]
             self.settings = AppSettings()
             return
@@ -35,6 +39,8 @@ class HabitStore:
         if not raw_text.strip():
             self.habits = []
             self.questions = []
+            self.day_journals = []
+            self.todos = []
             self.sections = ["General"]
             self.settings = AppSettings()
             return
@@ -44,6 +50,8 @@ class HabitStore:
         except json.JSONDecodeError:
             self.habits = []
             self.questions = []
+            self.day_journals = []
+            self.todos = []
             self.sections = ["General"]
             self.settings = AppSettings()
             return
@@ -54,10 +62,17 @@ class HabitStore:
         questions_payload = payload.get("questions", [])
         self.questions = [FocusQuestion.from_dict(item) for item in questions_payload]
 
+        day_journals_payload = payload.get("day_journals", [])
+        self.day_journals = [DayJournalPage.from_dict(item) for item in day_journals_payload]
+
+        todos_payload = payload.get("todos", [])
+        self.todos = [TodoItem.from_dict(item) for item in todos_payload]
+
         sections_payload = payload.get("sections", [])
         normalized_sections = [item.strip() for item in sections_payload if str(item).strip()]
         if not normalized_sections:
             normalized_sections = [habit.section for habit in self.habits if habit.section.strip()]
+            normalized_sections.extend([todo.section for todo in self.todos if todo.section.strip()])
         if "General" not in normalized_sections:
             normalized_sections.append("General")
         self.sections = sorted(set(normalized_sections))
@@ -70,6 +85,8 @@ class HabitStore:
             "sections": self.list_sections(),
             "habits": [habit.to_dict() for habit in self.habits],
             "questions": [question.to_dict() for question in self.questions],
+            "day_journals": [page.to_dict() for page in self.day_journals],
+            "todos": [todo.to_dict() for todo in self.todos],
         }
         temp_file = self.storage_file.with_suffix(".tmp")
         temp_file.write_text(
@@ -82,6 +99,9 @@ class HabitStore:
         combined = set(self.sections)
         for habit in self.habits:
             section = habit.section.strip() or "General"
+            combined.add(section)
+        for todo in self.todos:
+            section = todo.section.strip() or "General"
             combined.add(section)
         if "General" not in combined:
             combined.add("General")
@@ -162,6 +182,8 @@ class HabitStore:
         for habit in self.habits:
             if habit.sync_for_missed_periods():
                 changed = True
+        if self.sync_todo_rollover():
+            changed = True
         return changed
 
     def add_question(
@@ -228,3 +250,72 @@ class HabitStore:
 
     def set_dopamine_video_path(self, path: Optional[str]) -> None:
         self.settings.dopamine_video_path = (path or "").strip() or None
+
+    def save_day_journal_page(self, day: str, note: str) -> DayJournalPage:
+        normalized_day = day.strip()
+        page = self.get_day_journal_page(normalized_day)
+        if page is None:
+            page = DayJournalPage.create(day=normalized_day, note=note)
+            self.day_journals.append(page)
+        else:
+            page.note = note
+            page.updated_at = datetime.now().isoformat(timespec="seconds")
+        self.day_journals.sort(key=lambda item: item.day)
+        return page
+
+    def get_day_journal_page(self, day: str) -> Optional[DayJournalPage]:
+        for page in self.day_journals:
+            if page.day == day:
+                return page
+        return None
+
+    def list_day_journal_days(self) -> list[str]:
+        return sorted({page.day for page in self.day_journals})
+
+    def add_todo(self, *, section: str, text: str) -> TodoItem:
+        normalized_section = self.add_section(section)
+        todo = TodoItem.create(section=normalized_section, text=text)
+        self.todos.append(todo)
+        return todo
+
+    def get_todo(self, todo_id: str) -> Optional[TodoItem]:
+        for todo in self.todos:
+            if todo.id == todo_id:
+                return todo
+        return None
+
+    def toggle_todo_done(self, todo_id: str) -> Optional[TodoItem]:
+        todo = self.get_todo(todo_id)
+        if todo is None:
+            return None
+        if todo.is_completed():
+            todo.undo_done()
+        else:
+            todo.mark_done()
+        return todo
+
+    def undo_todo_done(self, todo_id: str) -> Optional[TodoItem]:
+        todo = self.get_todo(todo_id)
+        if todo is None:
+            return None
+        todo.undo_done()
+        return todo
+
+    def delete_todo(self, todo_id: str) -> bool:
+        initial_count = len(self.todos)
+        self.todos = [todo for todo in self.todos if todo.id != todo_id]
+        return len(self.todos) != initial_count
+
+    def sync_todo_rollover(self, now_value: Optional[datetime] = None) -> bool:
+        changed = False
+        stamp = now_value or datetime.now()
+        for todo in self.todos:
+            if todo.archive_if_due(stamp):
+                changed = True
+        return changed
+
+    def active_todos(self) -> list[TodoItem]:
+        return [todo for todo in self.todos if not todo.archived]
+
+    def done_todos(self) -> list[TodoItem]:
+        return [todo for todo in self.todos if todo.archived]
