@@ -654,7 +654,10 @@ class Habit:
                 )
 
             if max_boxes and len(boxes) > max_boxes:
-                return boxes[-max_boxes:]
+                completed_count = active.completed_count
+                focus_index = max(0, min(total - 1, completed_count))
+                window_start = max(0, min(focus_index - 1, total - max_boxes))
+                return boxes[window_start : window_start + max_boxes]
             return boxes
 
         window = self._open_window_size()

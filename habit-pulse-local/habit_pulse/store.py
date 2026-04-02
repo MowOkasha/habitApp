@@ -22,7 +22,8 @@ class HabitStore:
         self.questions: list[FocusQuestion] = []
         self.day_journals: list[DayJournalPage] = []
         self.todos: list[TodoItem] = []
-        self.sections: list[str] = ["General"]
+        self.habit_sections: list[str] = ["General"]
+        self.todo_sections: list[str] = ["General"]
         self.settings: AppSettings = AppSettings()
 
     def load(self) -> None:
@@ -31,7 +32,8 @@ class HabitStore:
             self.questions = []
             self.day_journals = []
             self.todos = []
-            self.sections = ["General"]
+            self.habit_sections = ["General"]
+            self.todo_sections = ["General"]
             self.settings = AppSettings()
             return
 
@@ -41,7 +43,8 @@ class HabitStore:
             self.questions = []
             self.day_journals = []
             self.todos = []
-            self.sections = ["General"]
+            self.habit_sections = ["General"]
+            self.todo_sections = ["General"]
             self.settings = AppSettings()
             return
 
@@ -52,7 +55,8 @@ class HabitStore:
             self.questions = []
             self.day_journals = []
             self.todos = []
-            self.sections = ["General"]
+            self.habit_sections = ["General"]
+            self.todo_sections = ["General"]
             self.settings = AppSettings()
             return
 
@@ -68,21 +72,32 @@ class HabitStore:
         todos_payload = payload.get("todos", [])
         self.todos = [TodoItem.from_dict(item) for item in todos_payload]
 
-        sections_payload = payload.get("sections", [])
-        normalized_sections = [item.strip() for item in sections_payload if str(item).strip()]
-        if not normalized_sections:
-            normalized_sections = [habit.section for habit in self.habits if habit.section.strip()]
-            normalized_sections.extend([todo.section for todo in self.todos if todo.section.strip()])
-        if "General" not in normalized_sections:
-            normalized_sections.append("General")
-        self.sections = sorted(set(normalized_sections))
+        old_sections_payload = payload.get("sections", [])
+        habit_sections_payload = payload.get("habit_sections", old_sections_payload)
+        todo_sections_payload = payload.get("todo_sections", old_sections_payload)
+
+        normalized_habit_sections = [item.strip() for item in habit_sections_payload if str(item).strip()]
+        if not normalized_habit_sections:
+            normalized_habit_sections = [habit.section for habit in self.habits if habit.section.strip()]
+        if "General" not in normalized_habit_sections:
+            normalized_habit_sections.append("General")
+        self.habit_sections = sorted(set(normalized_habit_sections))
+
+        normalized_todo_sections = [item.strip() for item in todo_sections_payload if str(item).strip()]
+        if not normalized_todo_sections:
+            normalized_todo_sections = [todo.section for todo in self.todos if todo.section.strip()]
+        if "General" not in normalized_todo_sections:
+            normalized_todo_sections.append("General")
+        self.todo_sections = sorted(set(normalized_todo_sections))
 
         self.settings = AppSettings.from_dict(payload.get("settings"))
 
     def save(self) -> None:
         payload = {
             "settings": self.settings.to_dict(),
-            "sections": self.list_sections(),
+            "sections": self.list_habit_sections(),
+            "habit_sections": self.list_habit_sections(),
+            "todo_sections": self.list_todo_sections(),
             "habits": [habit.to_dict() for habit in self.habits],
             "questions": [question.to_dict() for question in self.questions],
             "day_journals": [page.to_dict() for page in self.day_journals],
@@ -96,10 +111,11 @@ class HabitStore:
         temp_file.replace(self.storage_file)
 
     def list_sections(self) -> list[str]:
-        combined = set(self.sections)
+        combined = set(self.habit_sections)
         for habit in self.habits:
             section = habit.section.strip() or "General"
             combined.add(section)
+        combined.update(self.todo_sections)
         for todo in self.todos:
             section = todo.section.strip() or "General"
             combined.add(section)
@@ -107,11 +123,35 @@ class HabitStore:
             combined.add("General")
         return sorted(combined)
 
+    def list_habit_sections(self) -> list[str]:
+        combined = set(self.habit_sections)
+        for habit in self.habits:
+            combined.add(habit.section.strip() or "General")
+        combined.add("General")
+        return sorted(combined)
+
+    def list_todo_sections(self) -> list[str]:
+        combined = set(self.todo_sections)
+        for todo in self.todos:
+            combined.add(todo.section.strip() or "General")
+        combined.add("General")
+        return sorted(combined)
+
     def add_section(self, name: str) -> str:
+        return self.add_habit_section(name)
+
+    def add_habit_section(self, name: str) -> str:
         normalized = name.strip() or "General"
-        if normalized not in self.sections:
-            self.sections.append(normalized)
-            self.sections.sort()
+        if normalized not in self.habit_sections:
+            self.habit_sections.append(normalized)
+            self.habit_sections.sort()
+        return normalized
+
+    def add_todo_section(self, name: str) -> str:
+        normalized = name.strip() or "General"
+        if normalized not in self.todo_sections:
+            self.todo_sections.append(normalized)
+            self.todo_sections.sort()
         return normalized
 
     def add_habit(
@@ -125,7 +165,7 @@ class HabitStore:
         check_in_enabled: bool,
         check_in_interval_hours: int,
     ) -> Habit:
-        normalized_section = self.add_section(section)
+        normalized_section = self.add_habit_section(section)
         habit = Habit.create(
             name=name,
             section=normalized_section,
@@ -160,7 +200,7 @@ class HabitStore:
         if habit is None:
             return None
 
-        normalized_section = self.add_section(section)
+        normalized_section = self.add_habit_section(section)
         habit.reconfigure(
             name=name,
             section=normalized_section,
@@ -273,7 +313,7 @@ class HabitStore:
         return sorted({page.day for page in self.day_journals})
 
     def add_todo(self, *, section: str, text: str) -> TodoItem:
-        normalized_section = self.add_section(section)
+        normalized_section = self.add_todo_section(section)
         todo = TodoItem.create(section=normalized_section, text=text)
         self.todos.append(todo)
         return todo

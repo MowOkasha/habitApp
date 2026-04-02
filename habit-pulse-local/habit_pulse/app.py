@@ -47,6 +47,8 @@ class HabitPulseApp:
         self.todo_text_var = tk.StringVar(value="")
 
         self.journal_day_var = tk.StringVar(value=date.today().isoformat())
+        self.journal_display_day_var = tk.StringVar(value="")
+        self.journal_header_var = tk.StringVar(value="Daily Journal")
         self.journal_page_var = tk.StringVar(value="Page 1 / 1")
 
         self.dopamine_video_var = tk.StringVar(value=self.store.settings.dopamine_video_path or "")
@@ -82,94 +84,90 @@ class HabitPulseApp:
         self.root.after(60_000, self._heartbeat)
 
     def _configure_styles(self) -> None:
-        self.root.configure(background="#f0f3ec")
+        app_bg = "#f2eedb"
+        panel_bg = "#fffdf5"
+        panel_alt = "#ede6cf"
+        card_bg = "#fffaf0"
+        ink = "#161511"
+        muted_ink = "#5a564a"
+        accent = "#2e8b57"
+        accent_hover = "#2a7d4f"
+        accent_press = "#216640"
+        danger = "#b94a48"
+        focus = "#1d4ed8"
+
+        self.root.configure(background=app_bg)
 
         style = ttk.Style()
-        style.theme_use("clam")
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
 
-        style.configure("Root.TFrame", background="#f0f3ec")
-        style.configure("Panel.TFrame", background="#f8faf5")
-        style.configure("Card.TFrame", background="#fcfdf9", borderwidth=1, relief="solid")
+        style.configure("Root.TFrame", background=app_bg)
+        style.configure("Panel.TFrame", background=panel_bg, borderwidth=2, relief="solid")
+        style.configure("Card.TFrame", background=card_bg, borderwidth=2, relief="solid")
 
-        style.configure(
-            "Heading.TLabel",
-            background="#f0f3ec",
-            foreground="#1f3127",
-            font=("Avenir Next", 28, "bold"),
-        )
-        style.configure(
-            "Subheading.TLabel",
-            background="#f0f3ec",
-            foreground="#4f6254",
-            font=("Avenir Next", 12),
-        )
-        style.configure(
-            "Label.TLabel",
-            background="#f8faf5",
-            foreground="#2d4033",
-            font=("Avenir Next", 11),
-        )
-        style.configure(
-            "SectionLabel.TLabel",
-            background="#f0f3ec",
-            foreground="#1f3127",
-            font=("Avenir Next", 16, "bold"),
-        )
-        style.configure(
-            "CardTitle.TLabel",
-            background="#fcfdf9",
-            foreground="#1b2c21",
-            font=("Avenir Next", 14, "bold"),
-        )
-        style.configure(
-            "CardMeta.TLabel",
-            background="#fcfdf9",
-            foreground="#4a5f4f",
-            font=("Avenir Next", 10),
-        )
-        style.configure(
-            "Pill.TLabel",
-            background="#dde8d9",
-            foreground="#2b3e31",
-            padding=(8, 3),
-            font=("Avenir Next", 9, "bold"),
-        )
-        style.configure(
-            "Status.TLabel",
-            background="#f0f3ec",
-            foreground="#2f4638",
-            font=("Avenir Next", 10),
-        )
-        style.configure("Accent.TButton", font=("Avenir Next", 10, "bold"))
+        style.configure("Heading.TLabel", background=app_bg, foreground=ink, font=("Menlo", 30, "bold"))
+        style.configure("Subheading.TLabel", background=app_bg, foreground=muted_ink, font=("Avenir Next", 12))
+        style.configure("Label.TLabel", background=panel_bg, foreground=ink, font=("Avenir Next", 11))
+        style.configure("SectionLabel.TLabel", background=app_bg, foreground=ink, font=("Menlo", 14, "bold"))
+        style.configure("CardTitle.TLabel", background=card_bg, foreground=ink, font=("Menlo", 13, "bold"))
+        style.configure("CardMeta.TLabel", background=card_bg, foreground=muted_ink, font=("Menlo", 10))
+        style.configure("Pill.TLabel", background=panel_alt, foreground=ink, padding=(8, 3), font=("Menlo", 9, "bold"))
+        style.configure("Status.TLabel", background=app_bg, foreground=ink, font=("Menlo", 10))
 
-        style.configure(
-            "TEntry",
-            fieldbackground="#ffffff",
-            bordercolor="#b6c4b4",
-            lightcolor="#b6c4b4",
-            darkcolor="#b6c4b4",
-            padding=(4, 3),
+        style.configure("TButton", font=("Menlo", 10, "bold"), padding=(12, 6), borderwidth=2, relief="raised")
+        style.configure("Accent.TButton", font=("Menlo", 10, "bold"), padding=(12, 6), borderwidth=2, relief="raised", background=accent, foreground="#ffffff")
+        style.configure("Danger.TButton", font=("Menlo", 10, "bold"), padding=(12, 6), borderwidth=2, relief="raised", background=danger, foreground="#ffffff")
+        style.map(
+            "TButton",
+            background=[("pressed", panel_alt), ("active", "#f4f0df")],
+            relief=[("pressed", "sunken"), ("!pressed", "raised")],
         )
         style.map(
+            "Accent.TButton",
+            background=[("pressed", accent_press), ("active", accent_hover)],
+            foreground=[("disabled", "#e6e6e6")],
+            relief=[("pressed", "sunken"), ("!pressed", "raised")],
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("pressed", "#923636"), ("active", "#a84341")],
+            foreground=[("disabled", "#e6e6e6")],
+        )
+
+        style.configure("TNotebook", background=app_bg, borderwidth=0)
+        style.configure("TNotebook.Tab", background=panel_alt, foreground=ink, padding=(12, 8), font=("Menlo", 10, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", panel_bg), ("active", "#e2dac1")])
+
+        style.configure("Treeview", background=panel_bg, fieldbackground=panel_bg, foreground=ink, rowheight=26, borderwidth=1)
+        style.configure("Treeview.Heading", background=panel_alt, foreground=ink, font=("Menlo", 10, "bold"), relief="flat")
+        style.map("Treeview", background=[("selected", "#d7e6d8")], foreground=[("selected", ink)])
+
+        style.configure("TEntry", fieldbackground="#ffffff", bordercolor="#2b2a25", lightcolor="#2b2a25", darkcolor="#2b2a25", padding=(6, 4))
+        style.configure("TCombobox", fieldbackground="#ffffff", bordercolor="#2b2a25", lightcolor="#2b2a25", darkcolor="#2b2a25", padding=(4, 3))
+        style.configure("TSpinbox", fieldbackground="#ffffff", bordercolor="#2b2a25", lightcolor="#2b2a25", darkcolor="#2b2a25", padding=(4, 3))
+        style.map(
             "TEntry",
-            bordercolor=[("focus", "#4a9d61")],
-            lightcolor=[("focus", "#4a9d61")],
-            darkcolor=[("focus", "#4a9d61")],
-            fieldbackground=[("focus", "#f6fff7")],
+            bordercolor=[("focus", focus)],
+            lightcolor=[("focus", focus)],
+            darkcolor=[("focus", focus)],
+            fieldbackground=[("focus", "#f6fbff")],
         )
         style.map(
             "TCombobox",
-            bordercolor=[("focus", "#4a9d61")],
-            lightcolor=[("focus", "#4a9d61")],
-            darkcolor=[("focus", "#4a9d61")],
-            fieldbackground=[("focus", "#f6fff7")],
+            bordercolor=[("focus", focus)],
+            lightcolor=[("focus", focus)],
+            darkcolor=[("focus", focus)],
+            fieldbackground=[("focus", "#f6fbff")],
         )
         style.map(
             "TSpinbox",
-            bordercolor=[("focus", "#4a9d61")],
-            lightcolor=[("focus", "#4a9d61")],
-            darkcolor=[("focus", "#4a9d61")],
-            fieldbackground=[("focus", "#f6fff7")],
+            bordercolor=[("focus", focus)],
+            lightcolor=[("focus", focus)],
+            darkcolor=[("focus", focus)],
+            fieldbackground=[("focus", "#f6fbff")],
         )
 
     def _build_layout(self) -> None:
@@ -185,7 +183,7 @@ class HabitPulseApp:
         ttk.Label(title_frame, text="Habit Pulse", style="Heading.TLabel").pack(anchor="w")
         ttk.Label(
             title_frame,
-            text="Cards by section, editable settings, and dopamine-aware prompt questions.",
+            text="Minimal tracker with journals, focused prompts, and sectioned workflows.",
             style="Subheading.TLabel",
         ).pack(anchor="w")
 
@@ -230,7 +228,7 @@ class HabitPulseApp:
         self.habit_section_combo = ttk.Combobox(
             form,
             textvariable=self.habit_section_var,
-            values=self.store.list_sections(),
+            values=self.store.list_habit_sections(),
             width=16,
         )
         self.habit_section_combo.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 6))
@@ -332,7 +330,7 @@ class HabitPulseApp:
         section_panel = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 10, 12, 10))
         section_panel.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(section_panel, text="Create section", style="Label.TLabel").pack(side="left", padx=(0, 8))
+        ttk.Label(section_panel, text="Create habit section", style="Label.TLabel").pack(side="left", padx=(0, 8))
         section_entry = ttk.Entry(section_panel, textvariable=self.section_add_var, width=24)
         section_entry.pack(side="left", padx=(0, 8))
         self._attach_focus_hint(section_entry, "new section")
@@ -366,8 +364,8 @@ class HabitPulseApp:
         actions = ttk.Frame(parent, style="Root.TFrame")
         actions.pack(fill="x", pady=(8, 0))
 
-        ttk.Button(actions, text="Edit Habit", command=self._open_edit_selected_habit).pack(side="left", padx=(0, 8))
-        ttk.Button(actions, text="Delete Habit", command=self._delete_selected_habit).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Edit Habit", style="Accent.TButton", command=self._open_edit_selected_habit).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Delete Habit", style="Danger.TButton", command=self._delete_selected_habit).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Refresh", command=self._refresh_all_views).pack(side="left")
 
         self.habits_tree.bind("<Double-1>", lambda _event: self._open_edit_selected_habit())
@@ -444,9 +442,9 @@ class HabitPulseApp:
         actions = ttk.Frame(parent, style="Root.TFrame")
         actions.pack(fill="x", pady=(8, 0))
 
-        ttk.Button(actions, text="Edit Question", command=self._open_edit_selected_question).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Edit Question", style="Accent.TButton", command=self._open_edit_selected_question).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Toggle Enabled", command=self._toggle_selected_question).pack(side="left", padx=(0, 8))
-        ttk.Button(actions, text="Delete Question", command=self._delete_selected_question).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Delete Question", style="Danger.TButton", command=self._delete_selected_question).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Refresh", command=self._refresh_all_views).pack(side="left")
 
         self.questions_tree.bind("<Double-1>", lambda _event: self._open_edit_selected_question())
@@ -468,6 +466,7 @@ class HabitPulseApp:
         ttk.Button(nav, text="Save Page", style="Accent.TButton", command=self._save_day_journal_page).pack(side="left")
 
         ttk.Label(nav, textvariable=self.journal_page_var, style="CardMeta.TLabel").pack(side="right")
+        ttk.Label(nav, textvariable=self.journal_display_day_var, style="SectionLabel.TLabel").pack(side="right", padx=(0, 12))
 
         shell = ttk.Frame(parent, style="Panel.TFrame", padding=(18, 14, 18, 14))
         shell.pack(fill="both", expand=True)
@@ -480,10 +479,10 @@ class HabitPulseApp:
 
         header = tk.Label(
             left_page,
-            text="Daily Journal",
+            textvariable=self.journal_header_var,
             bg="#fbf3de",
             fg="#4a3f2a",
-            font=("Avenir Next", 16, "bold"),
+            font=("Menlo", 14, "bold"),
             anchor="w",
             padx=12,
             pady=8,
@@ -510,7 +509,7 @@ class HabitPulseApp:
         form.pack(fill="x", pady=(0, 8))
 
         ttk.Label(form, text="Section", style="Label.TLabel").pack(side="left", padx=(0, 8))
-        self.todo_section_combo = ttk.Combobox(form, textvariable=self.todo_section_var, values=self.store.list_sections(), width=18)
+        self.todo_section_combo = ttk.Combobox(form, textvariable=self.todo_section_var, values=self.store.list_todo_sections(), width=18)
         self.todo_section_combo.pack(side="left", padx=(0, 12))
         self._attach_focus_hint(self.todo_section_combo, "todo section")
 
@@ -576,24 +575,23 @@ class HabitPulseApp:
         )
 
     def _style_text_focus(self, widget: tk.Text) -> None:
-        widget.configure(highlightthickness=2, highlightbackground="#b6c4b4", highlightcolor="#4a9d61")
+        widget.configure(highlightthickness=2, highlightbackground="#2b2a25", highlightcolor="#1d4ed8")
         widget.bind(
             "<FocusIn>",
-            lambda _event: widget.configure(highlightbackground="#4a9d61"),
+            lambda _event: widget.configure(highlightbackground="#1d4ed8"),
             add="+",
         )
         widget.bind(
             "<FocusOut>",
-            lambda _event: widget.configure(highlightbackground="#b6c4b4"),
+            lambda _event: widget.configure(highlightbackground="#2b2a25"),
             add="+",
         )
 
     def _bind_single_click(self, widget: tk.Widget, callback) -> None:
-        def _click(_event: tk.Event) -> str:
+        def _click(_event: tk.Event) -> None:
             callback()
-            return "break"
 
-        widget.bind("<ButtonRelease-1>", _click, add="+")
+        widget.bind("<Button-1>", _click, add="+")
 
     def _on_mouse_wheel(self, event: tk.Event) -> None:
         target: Optional[tk.Canvas] = None
@@ -682,15 +680,16 @@ class HabitPulseApp:
         return f"in {minutes}m"
 
     def _refresh_section_choices(self) -> None:
-        sections = self.store.list_sections()
+        habit_sections = self.store.list_habit_sections()
+        todo_sections = self.store.list_todo_sections()
         if self.habit_section_combo is not None:
-            self.habit_section_combo.configure(values=sections)
+            self.habit_section_combo.configure(values=habit_sections)
         if self.todo_section_combo is not None:
-            self.todo_section_combo.configure(values=sections)
+            self.todo_section_combo.configure(values=todo_sections)
         if not self.habit_section_var.get().strip():
-            self.habit_section_var.set(sections[0])
+            self.habit_section_var.set(habit_sections[0])
         if not self.todo_section_var.get().strip():
-            self.todo_section_var.set(sections[0])
+            self.todo_section_var.set(todo_sections[0])
 
     def _refresh_habits_tree(self) -> None:
         if self.habits_tree is None:
@@ -766,6 +765,10 @@ class HabitPulseApp:
 
         page = self.store.get_day_journal_page(normalized)
         content = page.note if page else ""
+
+        day_value = str_to_date(normalized)
+        self.journal_display_day_var.set(day_value.strftime("%a %d %b %Y"))
+        self.journal_header_var.set(day_value.strftime("Daily Journal - %A, %b %d, %Y"))
 
         self.day_journal_text.delete("1.0", "end")
         self.day_journal_text.insert("1.0", content)
@@ -850,9 +853,9 @@ class HabitPulseApp:
             ).pack(side="left", padx=(8, 8))
 
         if todo.is_completed():
-            ttk.Button(row, text="Undo", command=lambda selected=todo.id: self._undo_todo(selected)).pack(side="left", padx=(0, 6))
+            ttk.Button(row, text="Undo", style="Accent.TButton", command=lambda selected=todo.id: self._undo_todo(selected)).pack(side="left", padx=(0, 6))
 
-        ttk.Button(row, text="Delete", command=lambda selected=todo.id: self._delete_todo(selected)).pack(side="left")
+        ttk.Button(row, text="Delete", style="Danger.TButton", command=lambda selected=todo.id: self._delete_todo(selected)).pack(side="left")
 
     def _refresh_todo_views(self) -> None:
         if self.todo_active_frame is None or self.todo_done_frame is None:
@@ -945,22 +948,6 @@ class HabitPulseApp:
 
     def _make_clickable(self, widget: tk.Widget, callback) -> None:
         self._bind_single_click(widget, callback)
-        for child in widget.winfo_children():
-            if isinstance(
-                child,
-                (
-                    ttk.Button,
-                    tk.Button,
-                    ttk.Entry,
-                    ttk.Combobox,
-                    ttk.Spinbox,
-                    tk.Text,
-                    ttk.Treeview,
-                    ttk.Scrollbar,
-                ),
-            ):
-                continue
-            self._make_clickable(child, callback)
 
     def _render_boxes_compact(self, parent: tk.Widget, habit: Habit) -> None:
         frame = tk.Frame(parent, background="#fcfdf9")
@@ -1017,7 +1004,13 @@ class HabitPulseApp:
             grid.pack(fill="x")
 
             habits = sorted(grouped[section_name], key=lambda item: item.name.lower())
-            columns = 2
+            width_value = self.cards_canvas.winfo_width() if self.cards_canvas is not None else self.root.winfo_width()
+            if width_value >= 1320:
+                columns = 3
+            elif width_value >= 920:
+                columns = 2
+            else:
+                columns = 1
             for idx, habit in enumerate(habits):
                 row_index = idx // columns
                 col_index = idx % columns
@@ -1052,6 +1045,7 @@ class HabitPulseApp:
                 ttk.Button(
                     actions,
                     text="Mark Done",
+                    style="Accent.TButton",
                     command=lambda selected=habit.id: self._mark_period_done(selected),
                 ).pack(side="left", padx=(0, 8))
                 ttk.Button(
@@ -1063,6 +1057,8 @@ class HabitPulseApp:
                 self._make_clickable(card, lambda selected=habit.id: self._open_habit_details(selected))
 
     def _refresh_all_views(self) -> None:
+        if self.store.sync_for_missed_days():
+            self.store.save()
         self._refresh_section_choices()
         self._render_tracker_cards()
         self._refresh_habits_tree()
@@ -1148,12 +1144,12 @@ class HabitPulseApp:
             messagebox.showerror("Invalid section", "Section name cannot be empty.")
             return
 
-        normalized = self.store.add_section(section)
+        normalized = self.store.add_habit_section(section)
         self.store.save()
         self.section_add_var.set("")
         self.habit_section_var.set(normalized)
         self._refresh_all_views()
-        self._set_status(f"Added section '{normalized}'.")
+        self._set_status(f"Added habit section '{normalized}'.")
 
     def _get_selected_habit(self) -> Optional[Habit]:
         if self.habits_tree is None:
@@ -1187,7 +1183,7 @@ class HabitPulseApp:
         frame.pack(fill="both", expand=True)
 
         ttk.Label(frame, text="Section", style="Label.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        section_combo = ttk.Combobox(frame, textvariable=section_var, values=self.store.list_sections(), width=18)
+        section_combo = ttk.Combobox(frame, textvariable=section_var, values=self.store.list_habit_sections(), width=18)
         section_combo.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 8))
 
         ttk.Label(frame, text="Habit", style="Label.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=(0, 8))
@@ -1400,49 +1396,57 @@ class HabitPulseApp:
         actions = ttk.Frame(frame, style="Panel.TFrame")
         actions.pack(fill="x", pady=(8, 0))
 
+        left_actions = ttk.Frame(actions, style="Panel.TFrame")
+        left_actions.pack(side="left")
+
+        right_actions = ttk.Frame(actions, style="Panel.TFrame")
+        right_actions.pack(side="right")
+
         ttk.Button(
-            actions,
+            left_actions,
             text="Mark Done",
+            style="Accent.TButton",
             command=lambda: self._mark_period_done_and_refresh_dialog(habit.id, dialog),
         ).pack(side="left", padx=(0, 8))
 
         ttk.Button(
-            actions,
+            left_actions,
+            text="Journal",
+            command=lambda: self._open_habit_journal_dialog(habit.id),
+        ).pack(side="left", padx=(0, 8))
+
+        ttk.Button(
+            left_actions,
             text="Edit",
             command=lambda: self._open_edit_habit_from_details(habit.id, dialog),
         ).pack(side="left", padx=(0, 8))
 
         ttk.Button(
-            actions,
-            text="Delete",
-            command=lambda: self._delete_habit_from_details(habit.id, dialog),
-        ).pack(side="left", padx=(0, 8))
-
-        ttk.Button(
-            actions,
+            left_actions,
             text="Restart",
             command=lambda: self._restart_habit_from_details(habit.id, dialog),
         ).pack(side="left", padx=(0, 8))
 
-        ttk.Button(
-            actions,
-            text="Journal",
-            command=lambda: self._open_habit_journal_dialog(habit.id),
-        ).pack(side="left", padx=(0, 8))
-
         if habit.check_in_enabled:
             ttk.Button(
-                actions,
+                left_actions,
                 text="Yes",
                 command=lambda: self._respond_check_in_from_details(habit.id, True, dialog),
             ).pack(side="left", padx=(0, 6))
             ttk.Button(
-                actions,
+                left_actions,
                 text="No",
                 command=lambda: self._respond_check_in_from_details(habit.id, False, dialog),
             ).pack(side="left", padx=(0, 8))
 
-        ttk.Button(actions, text="Close", command=dialog.destroy).pack(side="right")
+        ttk.Button(
+            right_actions,
+            text="Delete",
+            style="Danger.TButton",
+            command=lambda: self._delete_habit_from_details(habit.id, dialog),
+        ).pack(side="left", padx=(0, 8))
+
+        ttk.Button(right_actions, text="Close", command=dialog.destroy).pack(side="left")
 
     def _mark_period_done_and_refresh_dialog(self, habit_id: str, dialog: tk.Toplevel) -> None:
         self._mark_period_done(habit_id)
